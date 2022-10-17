@@ -8,7 +8,18 @@ from functools import update_wrapper
 from pathlib import Path
 from traceback import FrameSummary, StackSummary
 from types import TracebackType
-from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Type, Union
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    List,
+    Optional,
+    Sequence,
+    Set,
+    Tuple,
+    Type,
+    Union,
+)
 from uuid import UUID
 
 import click
@@ -653,6 +664,15 @@ def generate_tuple_convertor(
     return internal_convertor
 
 
+def generate_set_convertor(
+    convertor: Optional[Callable[[Any], Any]]
+) -> Callable[[Sequence[Any]], Set[Any]]:
+    def internal_convertor(value: Sequence[Any]) -> Set[Any]:
+        return {convertor(v) if convertor else v for v in value}
+
+    return internal_convertor
+
+
 def get_callback(
     *,
     callback: Optional[Callable[..., Any]] = None,
@@ -808,6 +828,7 @@ def get_click_param(
     main_type = annotation
     is_list = False
     is_tuple = False
+    is_set = False
     parameter_type: Any = None
     is_flag = None
     origin = getattr(main_type, "__origin__", None)
@@ -822,7 +843,7 @@ def get_click_param(
             assert len(types) == 1, "Typer Currently doesn't support Union types"
             main_type = types[0]
             origin = getattr(main_type, "__origin__", None)
-        # Handle Tuples and Lists
+        # Handle Tuples, Lists, and Sets
         if lenient_issubclass(origin, List):
             main_type = main_type.__args__[0]
             assert not getattr(
@@ -840,6 +861,12 @@ def get_click_param(
                 )
             parameter_type = tuple(types)
             is_tuple = True
+        elif lenient_issubclass(origin, Set):
+            main_type = main_type.__args__[0]
+            assert not getattr(
+                main_type, "__origin__", None
+            ), "Set types with complex sub-types are not currently supported"
+            is_set = True
     if parameter_type is None:
         parameter_type = get_click_type(
             annotation=main_type, parameter_info=parameter_info
@@ -849,6 +876,8 @@ def get_click_param(
         convertor = generate_list_convertor(convertor)
     if is_tuple:
         convertor = generate_tuple_convertor(main_type.__args__)
+    if is_set:
+        convertor = generate_set_convertor(convertor)
     if isinstance(parameter_info, OptionInfo):
         if main_type is bool and not (parameter_info.is_flag is False):
             is_flag = True
